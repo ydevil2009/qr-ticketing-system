@@ -32,18 +32,6 @@ const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
 const CLOUDINARY_FOLDER =
   process.env.CLOUDINARY_FOLDER || "ticket-payment-screenshots";
 
-if (!BREVO_API_KEY || !SENDER_EMAIL) {
-  console.warn("⚠️ Missing BREVO_API_KEY or SENDER_EMAIL");
-}
-
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  console.warn("⚠️ Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
-}
-
-if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
-  console.warn("⚠️ Missing Cloudinary credentials");
-}
-
 const supabase = createClient(
   SUPABASE_URL || "https://example.supabase.co",
   SUPABASE_SERVICE_ROLE_KEY || "missing-key",
@@ -64,10 +52,7 @@ const upload = multer({
 });
 
 function getBaseUrl() {
-  return String(process.env.BASE_URL || `http://localhost:${PORT}`).replace(
-    /\/$/,
-    ""
-  );
+  return String(process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, "");
 }
 
 function formatEventName(name = "") {
@@ -147,30 +132,23 @@ async function updateTicket(id, values) {
 }
 
 async function uploadImageToCloudinary(file) {
-  try {
-    const dataUri = `data:${file.mimetype};base64,${file.buffer.toString(
-      "base64"
-    )}`;
+  const dataUri = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
 
-    const result = await cloudinary.uploader.upload(dataUri, {
-      folder: CLOUDINARY_FOLDER,
-      resource_type: "image",
-    });
+  const result = await cloudinary.uploader.upload(dataUri, {
+    folder: CLOUDINARY_FOLDER,
+    resource_type: "image",
+  });
 
-    return {
-      url: result.secure_url,
-      publicId: result.public_id,
-    };
-  } catch (err) {
-    console.error("CLOUDINARY ERROR:", err);
-    throw err;
-  }
+  return {
+    url: result.secure_url,
+    publicId: result.public_id,
+  };
 }
 
 function pdfToBuffer(doc) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    doc.on("data", (chunk) => chunks.push(chunk));
+    doc.on("data", chunk => chunks.push(chunk));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
     doc.end();
@@ -209,14 +187,8 @@ async function createTicketPdfBuffer({
   doc.moveDown(2);
   doc.image(qrBuffer, 180, 260, { width: 200, height: 200 });
   doc.moveDown(15);
-  doc
-    .fontSize(14)
-    .fillColor("black")
-    .text("Show this QR code at entry.", { align: "center" });
-  doc
-    .fontSize(11)
-    .fillColor("gray")
-    .text("This ticket can only be assigned once.", { align: "center" });
+  doc.fontSize(14).fillColor("black").text("Show this QR code at entry.", { align: "center" });
+  doc.fontSize(11).fillColor("gray").text("This ticket can only be assigned once.", { align: "center" });
 
   return pdfToBuffer(doc);
 }
@@ -330,8 +302,7 @@ async function uploadExcelToSupabase(tickets) {
   const { error } = await supabase.storage
     .from(SUPABASE_EXPORTS_BUCKET)
     .upload(filePath, buffer, {
-      contentType:
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       upsert: true,
     });
 
@@ -342,59 +313,6 @@ async function uploadExcelToSupabase(tickets) {
     .getPublicUrl(filePath);
 
   return { buffer, publicUrl: data.publicUrl, path: filePath };
-}
-
-function renderHomePage() {
-  return `
-    <html>
-      <head>
-        <title>Ticket Portal</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      </head>
-      <body style="margin:0;background:#000;color:#fff;font-family:Arial,sans-serif;min-height:100vh;display:flex;justify-content:center;">
-        <div style="width:100%;max-width:980px;padding:40px 20px 70px 20px;text-align:center;">
-          <h1 style="font-size:72px;margin:20px 0 40px 0;font-weight:800;">🎟️ Ticket Portal</h1>
-          <form method="POST" action="/generate" enctype="multipart/form-data"
-            style="width:100%;max-width:650px;margin:0 auto;text-align:left;background:linear-gradient(90deg,#111,#161616);padding:40px 44px 46px 44px;border-radius:30px;box-shadow:0 0 30px rgba(255,255,255,0.03);">
-
-            <label style="display:block;font-size:32px;margin-bottom:14px;">🎉 EVENT NAME:-</label>
-            <input name="eventName" required placeholder="PROM NIGHT"
-              style="width:100%;padding:18px 20px;margin:0 0 30px 0;border-radius:6px;border:1px solid #777;font-size:22px;box-sizing:border-box;">
-
-            <label style="display:block;font-size:32px;margin-bottom:14px;">👤 NAME:-</label>
-            <input name="name" required
-              style="width:100%;padding:18px 20px;margin:0 0 30px 0;border-radius:6px;border:1px solid #777;font-size:22px;box-sizing:border-box;">
-
-            <label style="display:block;font-size:32px;margin-bottom:14px;">✉️ EMAIL:-</label>
-            <input name="email" type="email" required
-              style="width:100%;padding:18px 20px;margin:0 0 30px 0;border-radius:6px;border:1px solid #777;font-size:22px;box-sizing:border-box;">
-
-            <label style="display:block;font-size:32px;margin-bottom:14px;">📞 CONTACT:-</label>
-            <input name="contact" required
-              style="width:100%;padding:18px 20px;margin:0 0 30px 0;border-radius:6px;border:1px solid #777;font-size:22px;box-sizing:border-box;">
-
-            <label style="display:block;font-size:32px;margin-bottom:14px;">🎫 PASS TYPE:-</label>
-            <input name="passType" required placeholder="VIP / GENERAL / COUPLE"
-              style="width:100%;padding:18px 20px;margin:0 0 30px 0;border-radius:6px;border:1px solid #777;font-size:22px;box-sizing:border-box;">
-
-            <label style="display:block;font-size:32px;margin-bottom:18px;">📸 PAYMENT SS:-</label>
-            <input name="paymentSS" type="file" accept="image/*" required
-              style="width:100%;margin:0 0 42px 0;color:white;font-size:18px;">
-
-            <button type="submit"
-              style="width:100%;padding:22px 20px;font-size:28px;border:none;border-radius:6px;cursor:pointer;background:#e9e9e9;color:#111;font-weight:500;">
-              Generate Ticket
-            </button>
-          </form>
-
-          <div style="margin-top:55px;"><a href="/resend-all" style="font-size:28px;color:#56a8ff;">Send New QR to Everyone</a></div>
-          <div style="margin-top:22px;"><a href="/scan" style="font-size:24px;color:#56a8ff;">Open Scanner</a></div>
-          <div style="margin-top:22px;"><a href="/tickets" style="font-size:24px;color:#56a8ff;">View All Tickets</a></div>
-          <div style="margin-top:22px;"><a href="/download-excel" style="font-size:24px;color:#56a8ff;">Download Excel</a></div>
-        </div>
-      </body>
-    </html>
-  `;
 }
 
 app.get("/healthz", (req, res) => {
@@ -414,7 +332,7 @@ app.get("/scan.html", (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  res.send(renderHomePage());
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 app.post("/generate", upload.single("paymentSS"), async (req, res) => {
@@ -422,9 +340,7 @@ app.post("/generate", upload.single("paymentSS"), async (req, res) => {
     const { eventName, name, email, contact, passType } = req.body;
 
     if (!eventName || !name || !email || !contact || !passType || !req.file) {
-      return res
-        .status(400)
-        .send("Please fill all details and upload payment screenshot.");
+      return res.status(400).send("Please fill all details and upload payment screenshot.");
     }
 
     const normalizedEventName = formatEventName(eventName);
@@ -534,9 +450,7 @@ app.get("/verify/:id", async (req, res) => {
         <p><strong>🎫 PASS TYPE:-</strong> ${htmlEscape(ticket.pass_type || "")}</p>
         ${
           ticket.assigned_time
-            ? `<p><strong>⏱ ASSIGNED AT:-</strong> ${htmlEscape(
-                formatTimestamp(ticket.assigned_time)
-              )}</p>`
+            ? `<p><strong>⏱ ASSIGNED AT:-</strong> ${htmlEscape(formatTimestamp(ticket.assigned_time))}</p>`
             : ""
         }
         <p><strong>📨 MAIL SENT:-</strong> ${ticket.mail_sent ? "Yes" : "No"}</p>
@@ -545,9 +459,7 @@ app.get("/verify/:id", async (req, res) => {
         <p><strong>📸 PAYMENT SS:-</strong></p>
         ${
           ticket.payment_ss_url
-            ? `<img src="${htmlEscape(
-                ticket.payment_ss_url
-              )}" width="280" style="border-radius:8px;border:1px solid #444;">`
+            ? `<img src="${htmlEscape(ticket.payment_ss_url)}" width="280" style="border-radius:8px;border:1px solid #444;">`
             : "<p>No screenshot found</p>"
         }
       </div>
@@ -709,18 +621,12 @@ app.get("/tickets", async (req, res) => {
         <td>${htmlEscape(t.pass_type || "")}</td>
         <td>${htmlEscape(t.id || "")}</td>
         <td>${t.assigned ? "Yes" : "No"}</td>
-        <td>${htmlEscape(
-          t.assigned_time ? formatTimestamp(t.assigned_time) : "-"
-        )}</td>
+        <td>${htmlEscape(t.assigned_time ? formatTimestamp(t.assigned_time) : "-")}</td>
         <td>${t.mail_sent ? "Yes" : "No"}</td>
         <td>${htmlEscape(t.mail_status || "-")}</td>
         <td>${htmlEscape(t.created_at ? formatTimestamp(t.created_at) : "-")}</td>
-        <td><a href="${htmlEscape(
-          t.payment_ss_url || "#"
-        )}" target="_blank" style="color:#56a8ff;">View</a></td>
-        <td><a href="/verify/${encodeURIComponent(
-          t.id
-        )}" target="_blank" style="color:#56a8ff;">Open</a></td>
+        <td><a href="${htmlEscape(t.payment_ss_url || "#")}" target="_blank" style="color:#56a8ff;">View</a></td>
+        <td><a href="/verify/${encodeURIComponent(t.id)}" target="_blank" style="color:#56a8ff;">Open</a></td>
       </tr>
     `
       )
