@@ -3,8 +3,50 @@
 <head>
   <title>Ticket Portal</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <style>
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+  </style>
 </head>
+
 <body style="margin:0;background:#000;color:#fff;font-family:Arial,sans-serif;display:flex;justify-content:center;min-height:100vh;">
+
+  <div
+    id="wakeOverlay"
+    style="
+      display:none;
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,0.95);
+      color:white;
+      z-index:99999;
+      font-family:Arial,sans-serif;
+      align-items:center;
+      justify-content:center;
+      flex-direction:column;
+      text-align:center;
+    "
+  >
+    <div
+      style="
+        width:60px;
+        height:60px;
+        border:5px solid rgba(255,255,255,0.2);
+        border-top:5px solid white;
+        border-radius:50%;
+        animation:spin 1s linear infinite;
+        margin-bottom:20px;
+      "
+    ></div>
+
+    <h1 style="margin:0 0 10px 0;font-size:32px;">Waking server...</h1>
+    <p style="margin:0;font-size:18px;color:#ccc;">
+      First load may take a few seconds
+    </p>
+  </div>
 
   <div style="width:100%;max-width:980px;padding:40px 20px 70px 20px;text-align:center;">
 
@@ -12,7 +54,9 @@
       🎟️ Ticket Portal
     </h1>
 
-    <form id="ticketForm" enctype="multipart/form-data"
+    <form
+      id="ticketForm"
+      enctype="multipart/form-data"
       style="
         width:100%;
         max-width:650px;
@@ -22,8 +66,8 @@
         padding:40px 44px 46px 44px;
         border-radius:30px;
         box-shadow:0 0 30px rgba(255,255,255,0.03);
-      ">
-
+      "
+    >
       <label style="display:block;font-size:32px;margin-bottom:14px;">🎉 EVENT NAME:-</label>
       <input
         id="eventName"
@@ -168,11 +212,32 @@
   </div>
 
   <script>
+    const wakeOverlay = document.getElementById("wakeOverlay");
+
+    function showWakeOverlay() {
+      wakeOverlay.style.display = "flex";
+    }
+
+    function hideWakeOverlay() {
+      wakeOverlay.style.display = "none";
+    }
+
+    window.addEventListener("load", async () => {
+      showWakeOverlay();
+      try {
+        await fetch("/healthz", { cache: "no-store" });
+      } catch (e) {
+        console.error("Wake error:", e);
+      }
+      setTimeout(hideWakeOverlay, 800);
+    });
+
     document.getElementById("ticketForm").addEventListener("submit", async function(e) {
       e.preventDefault();
 
       const status = document.getElementById("status");
       status.innerText = "Generating ticket...";
+      showWakeOverlay();
 
       const formData = new FormData();
       formData.append("eventName", document.getElementById("eventName").value);
@@ -184,6 +249,7 @@
       const fileInput = document.getElementById("paymentSS");
       if (!fileInput.files[0]) {
         status.innerText = "Please upload payment screenshot.";
+        hideWakeOverlay();
         return;
       }
 
@@ -201,6 +267,7 @@
         document.close();
       } catch (err) {
         status.innerText = "Error: " + err.message;
+        hideWakeOverlay();
       }
     });
   </script>
