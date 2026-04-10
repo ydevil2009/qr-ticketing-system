@@ -1,36 +1,67 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8" />
   <title>Scan QR</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 </head>
-<body style="text-align:center; font-family:Arial; background:#111; color:white; padding-top:30px;">
+<body style="text-align:center; font-family:Arial, sans-serif; background:#111; color:white; padding-top:30px; margin:0;">
 
   <h2>🎟 Scan Ticket</h2>
   <p>Point camera at QR code</p>
 
   <div id="reader" style="width:320px; margin:auto; border-radius:12px; overflow:hidden;"></div>
-
-  <p id="status" style="margin-top:20px; color:#4da3ff;"></p>
+  <p id="status" style="margin-top:20px; color:#4da3ff; padding:0 20px; word-break:break-word;"></p>
 
   <script src="https://unpkg.com/html5-qrcode"></script>
-
   <script>
     let scannerStarted = false;
+    const statusEl = document.getElementById("status");
+    const html5QrCode = new Html5Qrcode("reader");
 
-    function onScanSuccess(decodedText) {
-      document.getElementById("status").innerText = "Scanned: " + decodedText;
+    function getValidVerifyUrl(decodedText) {
+      const text = String(decodedText || "").trim();
+      if (!text) return null;
 
-      if (decodedText.includes("/verify/")) {
-        window.location.href = decodedText;
-      } else {
-        alert("Invalid QR");
+      if (text.startsWith("http://") || text.startsWith("https://")) {
+        try {
+          const url = new URL(text);
+          if (url.pathname.startsWith("/verify/")) return url.toString();
+        } catch (_) {
+          return null;
+        }
+      }
+
+      if (text.startsWith("/verify/")) {
+        return window.location.origin + text;
+      }
+
+      if (text.startsWith("verify/")) {
+        return window.location.origin + "/" + text;
+      }
+
+      return null;
+    }
+
+    async function onScanSuccess(decodedText) {
+      try {
+        statusEl.innerText = "Scanned: " + decodedText;
+
+        const redirectUrl = getValidVerifyUrl(decodedText);
+        if (!redirectUrl) {
+          alert("Invalid QR");
+          return;
+        }
+
+        await html5QrCode.stop().catch(() => {});
+        window.location.href = redirectUrl;
+      } catch (err) {
+        console.error("SCAN REDIRECT ERROR:", err);
+        alert("Scan error: " + (err.message || err));
       }
     }
 
-    function onScanError(error) {}
-
-    const html5QrCode = new Html5Qrcode("reader");
+    function onScanError() {}
 
     Html5Qrcode.getCameras()
       .then(devices => {
@@ -47,14 +78,13 @@
             onScanError
           );
         } else {
-          document.getElementById("status").innerText = "No camera found";
+          statusEl.innerText = "No camera found";
         }
       })
       .catch(err => {
         console.error(err);
-        document.getElementById("status").innerText = "Camera error: " + err;
+        statusEl.innerText = "Camera error: " + err;
       });
   </script>
-
 </body>
 </html>
