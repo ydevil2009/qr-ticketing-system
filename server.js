@@ -16,7 +16,6 @@ const app = express();
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, "public")));
 
 const PORT = Number(process.env.PORT) || 5500;
 
@@ -793,6 +792,8 @@ app.get("/download-excel", async (req, res) => {
       .send(`<body>Error downloading Excel: ${htmlEscape(err.message)}</body>`);
   }
 });
+
+app.use(express.static(path.join(__dirname, "public")));
 
 app.use((req, res) => {
   res.status(404).send(`
