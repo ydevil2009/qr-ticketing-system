@@ -14,56 +14,14 @@ const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json({ limit: "10mb" }));
+app.use(bodyParser.urlencoded({ extended: true, limit: "10mb" }));
+app.use(express.static(path.join(__dirname, "public")));
 
 const PORT = Number(process.env.PORT) || 5500;
 
-const BREVO_API_KEY = process.env.BREVO_API_KEY;
-const SENDER_EMAIL = process.env.SENDER_EMAIL;
-
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const SUPABASE_EXPORTS_BUCKET = process.env.SUPABASE_EXPORTS_BUCKET || "exports";
-
-const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME;
-const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;
-const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
-const CLOUDINARY_FOLDER =
-  process.env.CLOUDINARY_FOLDER || "ticket-payment-screenshots";
-
-const supabase = createClient(
-  SUPABASE_URL || "https://example.supabase.co",
-  SUPABASE_SERVICE_ROLE_KEY || "missing-key",
-  {
-    auth: { persistSession: false, autoRefreshToken: false },
-  }
-);
-
-cloudinary.config({
-  cloud_name: CLOUDINARY_CLOUD_NAME,
-  api_key: CLOUDINARY_API_KEY,
-  api_secret: CLOUDINARY_API_SECRET,
-});
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 },
-});
-
 function getBaseUrl() {
   return String(process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, "");
-}
-
-function formatEventName(name = "") {
-  return String(name).trim().toUpperCase();
-}
-
-function formatTimestamp(dateInput) {
-  if (!dateInput) return "-";
-  const date = new Date(dateInput);
-  if (Number.isNaN(date.getTime())) return String(dateInput);
-  return date.toLocaleString();
 }
 
 function htmlEscape(value = "") {
@@ -75,6 +33,95 @@ function htmlEscape(value = "") {
     .replace(/'/g, "&#39;");
 }
 
+function formatEventName(name = "") {
+  return String(name).trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+function formatTimestamp(dateInput) {
+  if (!dateInput) return "-";
+  const date = new Date(dateInput);
+  if (Number.isNaN(date.getTime())) return String(dateInput);
+  return date.toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "medium",
+  });
+}
+
+function normalizeText(value = "") {
+  return String(value).trim().replace(/\s+/g, " ");
+}
+
+function isValidEmail(email = "") {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email).trim());
+}
+
+function requireEnv(name) {
+  const value = process.env[name];
+  if (!value || !String(value).trim()) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return String(value).trim();
+}
+
+// =========================
+// REQUIRED ENV CONFIG
+// =========================
+const BREVO_API_KEY = requireEnv("BREVO_API_KEY");
+const SENDER_EMAIL = requireEnv("SENDER_EMAIL");
+const SUPABASE_URL = requireEnv("SUPABASE_URL");
+const SUPABASE_SERVICE_ROLE_KEY = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+
+const SUPABASE_EXPORTS_BUCKET =
+  process.env.SUPABASE_EXPORTS_BUCKET?.trim() || "exports";
+
+const CLOUDINARY_CLOUD_NAME = requireEnv("CLOUDINARY_CLOUD_NAME");
+const CLOUDINARY_API_KEY = requireEnv("CLOUDINARY_API_KEY");
+const CLOUDINARY_API_SECRET = requireEnv("CLOUDINARY_API_SECRET");
+const CLOUDINARY_FOLDER =
+  process.env.CLOUDINARY_FOLDER?.trim() || "ticket-payment-screenshots";
+
+// =========================
+// DEBUG LOGS FOR RENDER
+// =========================
+console.log("BASE_URL exists:", !!process.env.BASE_URL);
+console.log("BREVO_API_KEY exists:", !!process.env.BREVO_API_KEY);
+console.log("SENDER_EMAIL exists:", !!process.env.SENDER_EMAIL);
+console.log("SUPABASE_URL exists:", !!process.env.SUPABASE_URL);
+console.log("SUPABASE_SERVICE_ROLE_KEY exists:", !!process.env.SUPABASE_SERVICE_ROLE_KEY);
+console.log("SUPABASE_EXPORTS_BUCKET exists:", !!process.env.SUPABASE_EXPORTS_BUCKET);
+console.log("CLOUDINARY_CLOUD_NAME exists:", !!process.env.CLOUDINARY_CLOUD_NAME);
+console.log("CLOUDINARY_API_KEY exists:", !!process.env.CLOUDINARY_API_KEY);
+console.log("CLOUDINARY_API_SECRET exists:", !!process.env.CLOUDINARY_API_SECRET);
+
+// =========================
+// CLIENTS
+// =========================
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
+
+cloudinary.config({
+  cloud_name: CLOUDINARY_CLOUD_NAME,
+  api_key: CLOUDINARY_API_KEY,
+  api_secret: CLOUDINARY_API_SECRET,
+});
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 8 * 1024 * 1024,
+  },
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype || !file.mimetype.startsWith("image/")) {
+      return cb(new Error("Only image files are allowed for payment screenshot."));
+    }
+    cb(null, true);
+  },
+});
+
+// =========================
+// DATABASE HELPERS
+// =========================
 async function listTickets() {
   const { data, error } = await supabase
     .from("tickets")
@@ -131,7 +178,14 @@ async function updateTicket(id, values) {
   return data;
 }
 
+// =========================
+// FILE / UPLOAD HELPERS
+// =========================
 async function uploadImageToCloudinary(file) {
+  if (!file?.buffer) {
+    throw new Error("Payment screenshot file is missing.");
+  }
+
   const dataUri = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
 
   const result = await cloudinary.uploader.upload(dataUri, {
@@ -148,7 +202,7 @@ async function uploadImageToCloudinary(file) {
 function pdfToBuffer(doc) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    doc.on("data", chunk => chunks.push(chunk));
+    doc.on("data", (chunk) => chunks.push(chunk));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
     doc.end();
@@ -187,12 +241,20 @@ async function createTicketPdfBuffer({
   doc.moveDown(2);
   doc.image(qrBuffer, 180, 260, { width: 200, height: 200 });
   doc.moveDown(15);
-  doc.fontSize(14).fillColor("black").text("Show this QR code at entry.", { align: "center" });
-  doc.fontSize(11).fillColor("gray").text("This ticket can only be assigned once.", { align: "center" });
+  doc.fontSize(14).fillColor("black").text("Show this QR code at entry.", {
+    align: "center",
+  });
+  doc
+    .fontSize(11)
+    .fillColor("gray")
+    .text("This ticket can only be assigned once.", { align: "center" });
 
   return pdfToBuffer(doc);
 }
 
+// =========================
+// EMAIL
+// =========================
 async function sendMailWithBrevo({ to, name, passLabel, pdfBuffer }) {
   try {
     const response = await axios.post(
@@ -226,7 +288,7 @@ async function sendMailWithBrevo({ to, name, passLabel, pdfBuffer }) {
         attachment: [
           {
             name: `${passLabel}.pdf`,
-            content: pdfBuffer.toString("base64"),
+            content: Buffer.from(pdfBuffer).toString("base64"),
           },
         ],
       },
@@ -236,18 +298,31 @@ async function sendMailWithBrevo({ to, name, passLabel, pdfBuffer }) {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
+        timeout: 30000,
       }
     );
 
-    return { success: true, messageId: response.data?.messageId || "" };
+    return {
+      success: true,
+      messageId: response.data?.messageId || "",
+      raw: response.data || null,
+    };
   } catch (err) {
     return {
       success: false,
-      error: err.response?.data?.message || err.message,
+      error:
+        err.response?.data?.message ||
+        err.response?.data?.code ||
+        err.message ||
+        "Unknown Brevo error",
+      raw: err.response?.data || null,
     };
   }
 }
 
+// =========================
+// EXCEL / EXPORTS
+// =========================
 async function buildExcelBuffer(tickets) {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Tickets");
@@ -302,7 +377,8 @@ async function uploadExcelToSupabase(tickets) {
   const { error } = await supabase.storage
     .from(SUPABASE_EXPORTS_BUCKET)
     .upload(filePath, buffer, {
-      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      contentType:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       upsert: true,
     });
 
@@ -315,8 +391,26 @@ async function uploadExcelToSupabase(tickets) {
   return { buffer, publicUrl: data.publicUrl, path: filePath };
 }
 
-app.get("/healthz", (req, res) => {
-  res.status(200).send("OK");
+// =========================
+// ROUTES
+// =========================
+app.get("/healthz", async (req, res) => {
+  try {
+    const { error } = await supabase.from("tickets").select("id").limit(1);
+    if (error) throw error;
+
+    res.status(200).json({
+      ok: true,
+      message: "Server healthy",
+      baseUrl: getBaseUrl(),
+    });
+  } catch (err) {
+    console.error("HEALTH CHECK ERROR:", err);
+    res.status(500).json({
+      ok: false,
+      error: err.message,
+    });
+  }
 });
 
 app.get("/test-route", (req, res) => {
@@ -337,10 +431,20 @@ app.get("/", (req, res) => {
 
 app.post("/generate", upload.single("paymentSS"), async (req, res) => {
   try {
-    const { eventName, name, email, contact, passType } = req.body;
+    const eventName = normalizeText(req.body.eventName);
+    const name = normalizeText(req.body.name);
+    const email = normalizeText(req.body.email).toLowerCase();
+    const contact = normalizeText(req.body.contact);
+    const passType = normalizeText(req.body.passType);
 
     if (!eventName || !name || !email || !contact || !passType || !req.file) {
-      return res.status(400).send("Please fill all details and upload payment screenshot.");
+      return res
+        .status(400)
+        .send("Please fill all details and upload payment screenshot.");
+    }
+
+    if (!isValidEmail(email)) {
+      return res.status(400).send("Please enter a valid email address.");
     }
 
     const normalizedEventName = formatEventName(eventName);
@@ -396,12 +500,16 @@ app.post("/generate", upload.single("paymentSS"), async (req, res) => {
     ticket = await updateTicket(id, {
       mail_sent: mailResult.success,
       mail_status: mailResult.success
-        ? "Sent"
+        ? `Sent${mailResult.messageId ? ` (${mailResult.messageId})` : ""}`
         : `Failed: ${mailResult.error || "Unknown error"}`,
     });
 
-    const allTickets = await listTickets();
-    await uploadExcelToSupabase(allTickets);
+    try {
+      const allTickets = await listTickets();
+      await uploadExcelToSupabase(allTickets);
+    } catch (exportErr) {
+      console.error("EXPORT UPDATE ERROR AFTER GENERATE:", exportErr);
+    }
 
     res.send(`
       <html>
@@ -421,7 +529,14 @@ app.post("/generate", upload.single("paymentSS"), async (req, res) => {
     `);
   } catch (err) {
     console.error("GENERATE ERROR:", err);
-    res.status(500).send(`<body>Error: ${htmlEscape(err.message)}</body>`);
+    res.status(500).send(`
+      <html>
+        <body style="font-family:Arial,sans-serif;background:#111;color:white;padding:40px;">
+          <h1>Generate Error</h1>
+          <p>${htmlEscape(err.message)}</p>
+        </body>
+      </html>
+    `);
   }
 });
 
@@ -492,7 +607,14 @@ app.get("/verify/:id", async (req, res) => {
     `);
   } catch (err) {
     console.error("VERIFY ERROR:", err);
-    res.status(500).send(`<body>Error: ${htmlEscape(err.message)}</body>`);
+    res.status(500).send(`
+      <html>
+        <body style="font-family:Arial,sans-serif;background:#111;color:white;padding:40px;">
+          <h1>Verify Error</h1>
+          <p>${htmlEscape(err.message)}</p>
+        </body>
+      </html>
+    `);
   }
 });
 
@@ -522,8 +644,12 @@ app.post("/assign/:id", async (req, res) => {
       assigned_time: new Date().toISOString(),
     });
 
-    const allTickets = await listTickets();
-    await uploadExcelToSupabase(allTickets);
+    try {
+      const allTickets = await listTickets();
+      await uploadExcelToSupabase(allTickets);
+    } catch (exportErr) {
+      console.error("EXPORT UPDATE ERROR AFTER ASSIGN:", exportErr);
+    }
 
     res.send(`
       <html>
@@ -538,7 +664,14 @@ app.post("/assign/:id", async (req, res) => {
     `);
   } catch (err) {
     console.error("ASSIGN ERROR:", err);
-    res.status(500).send(`<body>Error: ${htmlEscape(err.message)}</body>`);
+    res.status(500).send(`
+      <html>
+        <body style="font-family:Arial,sans-serif;background:#111;color:white;padding:40px;">
+          <h1>Assign Error</h1>
+          <p>${htmlEscape(err.message)}</p>
+        </body>
+      </html>
+    `);
   }
 });
 
@@ -550,9 +683,12 @@ app.get("/resend-all", async (req, res) => {
       return res.send("No tickets found");
     }
 
+    let successCount = 0;
+    let failCount = 0;
+
     for (const existingTicket of tickets) {
-      const newId = uuidv4();
-      const verifyUrl = `${getBaseUrl()}/verify/${newId}`;
+      const currentVerifyUrl =
+        existingTicket.verify_url || `${getBaseUrl()}/verify/${existingTicket.id}`;
 
       const pdfBuffer = await createTicketPdfBuffer({
         eventName: existingTicket.event_name,
@@ -561,8 +697,8 @@ app.get("/resend-all", async (req, res) => {
         email: existingTicket.email,
         contact: existingTicket.contact,
         passType: existingTicket.pass_type,
-        id: newId,
-        verifyUrl,
+        id: existingTicket.id,
+        verifyUrl: currentVerifyUrl,
       });
 
       const mailResult = await sendMailWithBrevo({
@@ -573,24 +709,29 @@ app.get("/resend-all", async (req, res) => {
       });
 
       await updateTicket(existingTicket.id, {
-        id: newId,
-        verify_url: verifyUrl,
-        assigned: false,
-        assigned_time: null,
         mail_sent: mailResult.success,
         mail_status: mailResult.success
-          ? "Sent"
-          : `Failed: ${mailResult.error || "Unknown error"}`,
+          ? `Resent${mailResult.messageId ? ` (${mailResult.messageId})` : ""}`
+          : `Resend Failed: ${mailResult.error || "Unknown error"}`,
       });
+
+      if (mailResult.success) successCount += 1;
+      else failCount += 1;
     }
 
-    const updatedTickets = await listTickets();
-    await uploadExcelToSupabase(updatedTickets);
+    try {
+      const updatedTickets = await listTickets();
+      await uploadExcelToSupabase(updatedTickets);
+    } catch (exportErr) {
+      console.error("EXPORT UPDATE ERROR AFTER RESEND:", exportErr);
+    }
 
     res.send(`
       <html>
         <body style="text-align:center;background:#111;color:white;padding-top:50px;font-family:Arial;">
-          <h1>✅ Sent new QR to everyone</h1>
+          <h1>✅ Resend Completed</h1>
+          <p>Success: ${successCount}</p>
+          <p>Failed: ${failCount}</p>
           <br>
           <a href="/tickets" style="color:#4da3ff;">View All Tickets</a>
           <br><br>
@@ -600,7 +741,14 @@ app.get("/resend-all", async (req, res) => {
     `);
   } catch (err) {
     console.error("RESEND-ALL ERROR:", err);
-    res.status(500).send(`<body>Error: ${htmlEscape(err.message)}</body>`);
+    res.status(500).send(`
+      <html>
+        <body style="font-family:Arial,sans-serif;background:#111;color:white;padding:40px;">
+          <h1>Resend Error</h1>
+          <p>${htmlEscape(err.message)}</p>
+        </body>
+      </html>
+    `);
   }
 });
 
@@ -625,7 +773,13 @@ app.get("/tickets", async (req, res) => {
         <td>${t.mail_sent ? "Yes" : "No"}</td>
         <td>${htmlEscape(t.mail_status || "-")}</td>
         <td>${htmlEscape(t.created_at ? formatTimestamp(t.created_at) : "-")}</td>
-        <td><a href="${htmlEscape(t.payment_ss_url || "#")}" target="_blank" style="color:#56a8ff;">View</a></td>
+        <td>
+          ${
+            t.payment_ss_url
+              ? `<a href="${htmlEscape(t.payment_ss_url)}" target="_blank" style="color:#56a8ff;">View</a>`
+              : "-"
+          }
+        </td>
         <td><a href="/verify/${encodeURIComponent(t.id)}" target="_blank" style="color:#56a8ff;">Open</a></td>
       </tr>
     `
@@ -673,7 +827,14 @@ app.get("/tickets", async (req, res) => {
     `);
   } catch (err) {
     console.error("TICKETS ERROR:", err);
-    res.status(500).send(`<body>Error: ${htmlEscape(err.message)}</body>`);
+    res.status(500).send(`
+      <html>
+        <body style="font-family:Arial,sans-serif;background:#111;color:white;padding:40px;">
+          <h1>Tickets Error</h1>
+          <p>${htmlEscape(err.message)}</p>
+        </body>
+      </html>
+    `);
   }
 });
 
@@ -693,13 +854,40 @@ app.get("/download-excel", async (req, res) => {
     res.send(Buffer.from(buffer));
   } catch (err) {
     console.error("DOWNLOAD EXCEL ERROR:", err);
-    res
-      .status(500)
-      .send(`<body>Error downloading Excel: ${htmlEscape(err.message)}</body>`);
+    res.status(500).send(`
+      <html>
+        <body style="font-family:Arial,sans-serif;background:#111;color:white;padding:40px;">
+          <h1>Download Error</h1>
+          <p>${htmlEscape(err.message)}</p>
+        </body>
+      </html>
+    `);
   }
 });
 
-app.use(express.static(path.join(__dirname, "public")));
+app.use((err, req, res, next) => {
+  console.error("UNHANDLED APP ERROR:", err);
+
+  if (err instanceof multer.MulterError) {
+    return res.status(400).send(`
+      <html>
+        <body style="font-family:Arial,sans-serif;background:#111;color:white;padding:40px;">
+          <h1>Upload Error</h1>
+          <p>${htmlEscape(err.message)}</p>
+        </body>
+      </html>
+    `);
+  }
+
+  res.status(500).send(`
+    <html>
+      <body style="font-family:Arial,sans-serif;background:#111;color:white;padding:40px;">
+        <h1>Server Error</h1>
+        <p>${htmlEscape(err.message || "Something went wrong")}</p>
+      </body>
+    </html>
+  `);
+});
 
 app.use((req, res) => {
   res.status(404).send(`
@@ -715,4 +903,5 @@ app.use((req, res) => {
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 RUNNING ON ${getBaseUrl()}`);
   console.log(`✅ TEST ROUTE: ${getBaseUrl()}/test-route`);
+  console.log(`✅ HEALTH ROUTE: ${getBaseUrl()}/healthz`);
 });
